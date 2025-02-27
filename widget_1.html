@@ -1,0 +1,1275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Questionnaire Editor with Timeline, Export/Import & State Save/Restore</title>
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    body {
+      background-color: #f8f9fa;
+      padding: 20px;
+    }
+    /* Timeline styling */
+    #timelineContainer {
+      margin-bottom: 20px;
+    }
+    .timeline-item {
+      padding: 8px 12px;
+      border-left: 3px solid #0d6efd;
+      margin-bottom: 5px;
+      background: #e9ecef;
+    }
+    .timeline-item.completed {
+      background: #d1e7dd;
+      border-left-color: #198754;
+    }
+    .timeline-item.current {
+      background: #fff3cd;
+      border-left-color: #ffc107;
+    }
+    /* Editor area */
+    #editorArea {
+      position: relative;
+      height: 600px;
+      border: 1px solid #ddd;
+      background-color: #fff;
+      overflow: auto;
+    }
+    /* Zoomable container for questions */
+    #editorContent {
+      position: relative;
+      width: 2000px;
+      height: 2000px;
+    }
+    /* Question card styles */
+    .question-card {
+      position: absolute;
+      width: 250px;
+      z-index: 10;
+      user-select: none;
+    }
+    .question-card .card-header {
+      cursor: move;
+    }
+    /* Canvas overlay for connectors */
+    #connectionsCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 20;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container my-4">
+    <!-- Timeline Section -->
+    <h2>Questionnaire Timeline</h2>
+    <div id="timelineContainer" class="mb-4"></div>
+    
+    <!-- Preview Section -->
+    <h2>Questionnaire Preview</h2>
+    <div id="previewContainer" class="card mb-4"></div>
+    <button id="restartPreviewBtn" class="btn btn-secondary mb-4">Restart Preview</button>
+
+    <!-- Editor Section -->
+    <h2>Questionnaire Editor (Drag &amp; Drop)</h2>
+    <div class="d-flex justify-content-end mb-2">
+      <button id="zoomInBtn" class="btn btn-secondary me-2">Zoom In</button>
+      <button id="zoomOutBtn" class="btn btn-secondary me-2">Zoom Out</button>
+      <button id="exportJsonBtn" class="btn btn-outline-primary me-2">Export JSON</button>
+      <button id="importJsonBtn" class="btn btn-outline-primary me-2">Import JSON</button>
+      <button id="compareJsonBtn" class="btn btn-outline-primary me-2">Compare JSON</button>
+      <button id="exportStateBtn" class="btn btn-outline-success me-2">Export State</button>
+      <button id="importStateBtn" class="btn btn-outline-success">Import State</button>
+    </div>
+    <div id="editorArea">
+      <!-- Zoomable container -->
+      <div id="editorContent"></div>
+    </div>
+    <div class="mt-3">
+      <button id="addQuestionBtn" class="btn btn-primary">Add Options Question</button>
+      <button id="addInputQuestionBtn" class="btn btn-info ms-2">Add Text Input Question</button>
+      <button id="addDateTimeQuestionBtn" class="btn btn-warning ms-2">Add Date &amp; Time Question</button>
+      <button id="addSliderQuestionBtn" class="btn btn-success ms-2">Add Number Slider Question</button>
+      <button id="addSuccessQuestionBtn" class="btn btn-dark ms-2">Add Success Message</button>
+      <button id="refreshPreviewBtn" class="btn btn-dark ms-2">Refresh Preview</button>
+    </div>
+  </div>
+
+  <!-- Export JSON Modal -->
+  <div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="exportModalLabel">Export Questionnaire JSON</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <textarea id="exportJsonText" class="form-control" rows="15"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary" id="copyJsonBtn">Copy to Clipboard</button>
+          <button type="button" class="btn btn-success" id="downloadJsonBtn">Download JSON</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import JSON Modal -->
+  <div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="importModalLabel">Import Questionnaire JSON</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <input type="file" id="importJsonFile" class="form-control mb-2" accept=".json" />
+          <textarea id="importJsonText" class="form-control" rows="10" placeholder="Or paste your JSON here..."></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="loadJsonBtn">Load JSON</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Compare JSON Modal -->
+  <div class="modal fade" id="compareModal" tabindex="-1" aria-labelledby="compareModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="compareModalLabel">Compare Two Questionnaires</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="compareJsonText1" class="form-label">Questionnaire JSON 1</label>
+            <textarea id="compareJsonText1" class="form-control" rows="8" placeholder="Paste first JSON here..."></textarea>
+          </div>
+          <div class="mb-3">
+            <label for="compareJsonText2" class="form-label">Questionnaire JSON 2</label>
+            <textarea id="compareJsonText2" class="form-control" rows="8" placeholder="Paste second JSON here..."></textarea>
+          </div>
+          <div id="compareResult" class="mt-3"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary" id="compareBtn">Compare</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export State Modal -->
+  <div class="modal fade" id="exportStateModal" tabindex="-1" aria-labelledby="exportStateModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="exportStateModalLabel">Export Questionnaire State</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <textarea id="exportStateText" class="form-control" rows="10"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary" id="copyStateBtn">Copy to Clipboard</button>
+          <button type="button" class="btn btn-success" id="downloadStateBtn">Download State</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Import State Modal -->
+  <div class="modal fade" id="importStateModal" tabindex="-1" aria-labelledby="importStateModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="importStateModalLabel">Import Questionnaire State</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <input type="file" id="importStateFile" class="form-control mb-2" accept=".json" />
+          <textarea id="importStateText" class="form-control" rows="10" placeholder="Or paste state JSON here..."></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="loadStateBtn">Load State</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // --- Data Structure & Initial State ---
+    let questions = {
+      "q1": {
+        id: "q1",
+        type: "options",
+        question: "Question 1: Do you like our service?",
+        options: [
+          { text: "Yes", next: "q2" },
+          { text: "No", next: null }
+        ],
+        x: 50,
+        y: 50
+      },
+      "q2": {
+        id: "q2",
+        type: "input",
+        question: "Question 2: Please explain why:",
+        placeholder: "Type your answer...",
+        next: null,
+        x: 350,
+        y: 50
+      }
+    };
+    let questionCounter = 3;
+    let currentPreviewQuestionId = "q1";
+    let progress = {}; // records answers: { time, answer }
+    let currentConnecting = null;
+    let zoomLevel = 1;
+
+    // --- Helper Functions ---
+    function getCardRect(card) {
+      return {
+        x: parseFloat(card.style.left),
+        y: parseFloat(card.style.top),
+        width: card.offsetWidth,
+        height: card.offsetHeight
+      };
+    }
+    function getEdgeIntersection(rect, center, target) {
+      let dx = target.x - center.x;
+      let dy = target.y - center.y;
+      if (dx === 0 && dy === 0) return { x: center.x, y: center.y };
+      let halfWidth = rect.width / 2;
+      let halfHeight = rect.height / 2;
+      let scale = Math.min(halfWidth / Math.abs(dx), halfHeight / Math.abs(dy));
+      return {
+        x: center.x + dx * scale,
+        y: center.y + dy * scale
+      };
+    }
+    function drawArrowhead(ctx, fromX, fromY, toX, toY, arrowLength = 10, arrowAngle = Math.PI / 8) {
+      let angle = Math.atan2(toY - fromY, toX - fromX);
+      ctx.beginPath();
+      ctx.moveTo(toX, toY);
+      ctx.lineTo(toX - arrowLength * Math.cos(angle - arrowAngle), toY - arrowLength * Math.sin(angle - arrowAngle));
+      ctx.lineTo(toX - arrowLength * Math.cos(angle + arrowAngle), toY - arrowLength * Math.sin(angle + arrowAngle));
+      ctx.closePath();
+      ctx.fillStyle = "black";
+      ctx.fill();
+    }
+
+    // --- State Save/Restore Functions ---
+    function exportState() {
+      const state = {
+        currentPreviewQuestionId: currentPreviewQuestionId,
+        progress: progress
+      };
+      return JSON.stringify(state, null, 2);
+    }
+    function importState(stateObj) {
+      if (stateObj && typeof stateObj === "object") {
+        currentPreviewQuestionId = stateObj.currentPreviewQuestionId || "q1";
+        progress = stateObj.progress || {};
+      }
+    }
+
+    // --- Record Answer ---
+    function recordAnswer(qid, answer) {
+      if (!progress[qid]) {
+        progress[qid] = { time: new Date().toLocaleTimeString(), answer: answer };
+      }
+    }
+    function resetProgress() {
+      progress = {};
+    }
+
+    // --- Reindex Questions ---
+    function reindexQuestions() {
+      let arr = Object.values(questions);
+      arr.sort((a, b) => parseInt(a.id.substring(1)) - parseInt(b.id.substring(1)));
+      let newQuestions = {};
+      let mapping = {};
+      for (let i = 0; i < arr.length; i++) {
+        let newId = "q" + (i + 1);
+        mapping[arr[i].id] = newId;
+        arr[i].id = newId;
+        newQuestions[newId] = arr[i];
+      }
+      for (let key in newQuestions) {
+        let q = newQuestions[key];
+        if (q.type === "options") {
+          q.options.forEach(opt => {
+            opt.next = mapping[opt.next] || null;
+          });
+        } else if (q.type !== "success") {
+          q.next = mapping[q.next] || null;
+        }
+      }
+      questions = newQuestions;
+      if (mapping[currentPreviewQuestionId]) {
+        currentPreviewQuestionId = mapping[currentPreviewQuestionId];
+      }
+      questionCounter = Object.keys(questions).length + 1;
+    }
+
+    // --- Timeline Rendering ---
+    function renderTimeline() {
+      const timelineContainer = document.getElementById("timelineContainer");
+      timelineContainer.innerHTML = "";
+      let timeline = [];
+      let current = questions["q1"];
+      while (current) {
+        timeline.push(current);
+        if (current.type === "options") {
+          if (current.options.length > 0 && current.options[0].next) {
+            current = questions[current.options[0].next];
+          } else {
+            break;
+          }
+        } else if (current.type !== "success") {
+          if (current.next) {
+            current = questions[current.next];
+          } else {
+            break;
+          }
+        } else {
+          timeline.push(current);
+          break;
+        }
+      }
+      let ul = document.createElement("ul");
+      ul.className = "list-group";
+      timeline.forEach(q => {
+        let li = document.createElement("li");
+        li.className = "list-group-item timeline-item";
+        let extra = "";
+        if (progress[q.id]) {
+          extra = `<br><small>Answered: ${progress[q.id].answer} at ${progress[q.id].time}</small>`;
+          li.classList.add("completed");
+        }
+        if (q.id === currentPreviewQuestionId) {
+          li.classList.add("current");
+          li.innerHTML = `<strong>${q.id}</strong> (${q.type}) – ${q.type==="success" ? (q.heading || "Success!") : q.question} <span class="badge bg-warning">Current</span>${extra}`;
+        } else {
+          li.innerHTML = `<strong>${q.id}</strong> (${q.type}) – ${q.type==="success" ? (q.heading || "Success!") : q.question}${extra}`;
+        }
+        li.onclick = () => {
+          currentPreviewQuestionId = q.id;
+          renderPreview();
+        };
+        ul.appendChild(li);
+      });
+      timelineContainer.appendChild(ul);
+    }
+
+    // --- Editor Rendering ---
+    function renderEditor() {
+      const editorContent = document.getElementById("editorContent");
+      editorContent.style.transform = "scale(" + zoomLevel + ")";
+      editorContent.style.transformOrigin = "top left";
+      editorContent.innerHTML = "";
+      
+      const canvas = document.createElement("canvas");
+      canvas.id = "connectionsCanvas";
+      canvas.width = 2000;
+      canvas.height = 2000;
+      canvas.style.position = "absolute";
+      canvas.style.top = "0";
+      canvas.style.left = "0";
+      canvas.style.zIndex = "20";
+      editorContent.appendChild(canvas);
+      
+      Object.values(questions).forEach(q => {
+        const card = document.createElement("div");
+        card.className = "card question-card shadow";
+        card.style.left = q.x + "px";
+        card.style.top = q.y + "px";
+        card.setAttribute("data-id", q.id);
+        
+        const cardHeader = document.createElement("div");
+        cardHeader.className = "card-header bg-primary text-white";
+        cardHeader.innerText = q.id;
+        card.appendChild(cardHeader);
+        
+        const cardBody = document.createElement("div");
+        cardBody.className = "card-body";
+        
+        if(q.type !== "success") {
+          const questionInput = document.createElement("input");
+          questionInput.type = "text";
+          questionInput.className = "form-control mb-2";
+          questionInput.value = q.question;
+          questionInput.onchange = (e) => { q.question = e.target.value; renderEditor(); renderCanvasConnections(); };
+          cardBody.appendChild(questionInput);
+        }
+        
+        const typeSelect = document.createElement("select");
+        typeSelect.className = "form-select form-select-sm mb-2";
+        const optChoice = document.createElement("option");
+        optChoice.value = "options";
+        optChoice.innerText = "Multiple Choice";
+        const inputChoice = document.createElement("option");
+        inputChoice.value = "input";
+        inputChoice.innerText = "Text Input";
+        const dtChoice = document.createElement("option");
+        dtChoice.value = "datetime";
+        dtChoice.innerText = "Date & Time";
+        const sliderChoice = document.createElement("option");
+        sliderChoice.value = "slider";
+        sliderChoice.innerText = "Number Slider";
+        const successChoice = document.createElement("option");
+        successChoice.value = "success";
+        successChoice.innerText = "Success Message";
+        typeSelect.appendChild(optChoice);
+        typeSelect.appendChild(inputChoice);
+        typeSelect.appendChild(dtChoice);
+        typeSelect.appendChild(sliderChoice);
+        typeSelect.appendChild(successChoice);
+        typeSelect.value = q.type;
+        typeSelect.onchange = (e) => { q.type = e.target.value; renderEditor(); renderCanvasConnections(); };
+        cardBody.appendChild(typeSelect);
+        
+        if(q.type === "options") {
+          q.options.forEach((option, index) => {
+            const optionRow = document.createElement("div");
+            optionRow.className = "d-flex align-items-center mb-2";
+            
+            const optionInput = document.createElement("input");
+            optionInput.type = "text";
+            optionInput.className = "form-control me-2";
+            optionInput.value = option.text;
+            optionInput.onchange = (e) => { option.text = e.target.value; renderEditor(); renderCanvasConnections(); };
+            optionRow.appendChild(optionInput);
+            
+            const connectBtn = document.createElement("button");
+            connectBtn.className = "btn btn-outline-secondary btn-sm";
+            connectBtn.innerText = option.next ? ("Connected to " + option.next) : "Connect";
+            connectBtn.onclick = (e) => {
+              currentConnecting = { sourceId: q.id, optionIndex: index };
+              alert("Click on the target question card to connect (for this option).");
+              e.stopPropagation();
+            };
+            optionRow.appendChild(connectBtn);
+            
+            const deleteOptionBtn = document.createElement("button");
+            deleteOptionBtn.className = "btn btn-danger btn-sm ms-2";
+            deleteOptionBtn.innerText = "Delete";
+            deleteOptionBtn.onclick = (e) => {
+              q.options.splice(index, 1);
+              renderEditor();
+              renderCanvasConnections();
+              e.stopPropagation();
+            };
+            optionRow.appendChild(deleteOptionBtn);
+            
+            cardBody.appendChild(optionRow);
+          });
+          const addChoiceBtn = document.createElement("button");
+          addChoiceBtn.className = "btn btn-sm btn-outline-success";
+          addChoiceBtn.innerText = "Add Answer Choice";
+          addChoiceBtn.onclick = (e) => {
+            q.options.push({ text: "", next: null });
+            renderEditor();
+            renderCanvasConnections();
+            e.stopPropagation();
+          };
+          cardBody.appendChild(addChoiceBtn);
+        } else if(q.type === "input") {
+          const placeholderInput = document.createElement("input");
+          placeholderInput.type = "text";
+          placeholderInput.className = "form-control mb-2";
+          placeholderInput.placeholder = "Placeholder for text input";
+          placeholderInput.value = q.placeholder || "";
+          placeholderInput.onchange = (e) => { q.placeholder = e.target.value; renderEditor(); renderCanvasConnections(); };
+          cardBody.appendChild(placeholderInput);
+          
+          const connectBtn = document.createElement("button");
+          connectBtn.className = "btn btn-outline-secondary btn-sm";
+          connectBtn.innerText = q.next ? ("Connected to " + q.next) : "Connect";
+          connectBtn.onclick = (e) => {
+            currentConnecting = { sourceId: q.id, special: true, type: "input" };
+            alert("Click on the target question card to connect (for text input).");
+            e.stopPropagation();
+          };
+          cardBody.appendChild(connectBtn);
+        } else if(q.type === "datetime") {
+          const placeholderInput = document.createElement("input");
+          placeholderInput.type = "text";
+          placeholderInput.className = "form-control mb-2";
+          placeholderInput.placeholder = "Placeholder for date & time";
+          placeholderInput.value = q.placeholder || "";
+          placeholderInput.onchange = (e) => { q.placeholder = e.target.value; renderEditor(); renderCanvasConnections(); };
+          cardBody.appendChild(placeholderInput);
+          
+          const connectBtn = document.createElement("button");
+          connectBtn.className = "btn btn-outline-secondary btn-sm";
+          connectBtn.innerText = q.next ? ("Connected to " + q.next) : "Connect";
+          connectBtn.onclick = (e) => {
+            currentConnecting = { sourceId: q.id, special: true, type: "datetime" };
+            alert("Click on the target question card to connect (for date & time).");
+            e.stopPropagation();
+          };
+          cardBody.appendChild(connectBtn);
+        } else if(q.type === "slider") {
+          const minLabel = document.createElement("label");
+          minLabel.innerText = "Minimum Value:";
+          cardBody.appendChild(minLabel);
+          let minInput = document.createElement("input");
+          minInput.type = "number";
+          minInput.className = "form-control mb-2";
+          minInput.value = q.min !== undefined ? q.min : 0;
+          minInput.onchange = (e) => { q.min = parseFloat(e.target.value); renderEditor(); renderCanvasConnections(); };
+          cardBody.appendChild(minInput);
+          
+          const maxLabel = document.createElement("label");
+          maxLabel.innerText = "Maximum Value:";
+          cardBody.appendChild(maxLabel);
+          let maxInput = document.createElement("input");
+          maxInput.type = "number";
+          maxInput.className = "form-control mb-2";
+          maxInput.value = q.max !== undefined ? q.max : 100;
+          maxInput.onchange = (e) => { q.max = parseFloat(e.target.value); renderEditor(); renderCanvasConnections(); };
+          cardBody.appendChild(maxInput);
+          
+          const stepLabel = document.createElement("label");
+          stepLabel.innerText = "Step Value:";
+          cardBody.appendChild(stepLabel);
+          let stepInput = document.createElement("input");
+          stepInput.type = "number";
+          stepInput.className = "form-control mb-2";
+          stepInput.value = q.step !== undefined ? q.step : 1;
+          stepInput.onchange = (e) => { q.step = parseFloat(e.target.value); renderEditor(); renderCanvasConnections(); };
+          cardBody.appendChild(stepInput);
+          
+          const defaultLabel = document.createElement("label");
+          defaultLabel.innerText = "Default Value:";
+          cardBody.appendChild(defaultLabel);
+          let defaultInput = document.createElement("input");
+          defaultInput.type = "number";
+          defaultInput.className = "form-control mb-2";
+          defaultInput.value = q.default !== undefined ? q.default : (q.min !== undefined ? q.min : 0);
+          defaultInput.onchange = (e) => { q.default = parseFloat(e.target.value); renderEditor(); renderCanvasConnections(); };
+          cardBody.appendChild(defaultInput);
+          
+          const connectBtn = document.createElement("button");
+          connectBtn.className = "btn btn-outline-secondary btn-sm";
+          connectBtn.innerText = q.next ? ("Connected to " + q.next) : "Connect Outcome";
+          connectBtn.onclick = (e) => {
+            currentConnecting = { sourceId: q.id, slider: "normal" };
+            alert("Click on the target question card for slider outcome.");
+            e.stopPropagation();
+          };
+          cardBody.appendChild(connectBtn);
+        } else if(q.type === "success") {
+          const headingInput = document.createElement("input");
+          headingInput.type = "text";
+          headingInput.className = "form-control mb-2";
+          headingInput.placeholder = "Success Heading";
+          headingInput.value = q.heading || "Success!";
+          headingInput.onchange = (e) => { q.heading = e.target.value; renderEditor(); };
+          cardBody.appendChild(headingInput);
+          
+          const messageInput = document.createElement("textarea");
+          messageInput.className = "form-control mb-2";
+          messageInput.placeholder = "Success Message";
+          messageInput.value = q.message || "Your questionnaire has been successfully completed.";
+          messageInput.onchange = (e) => { q.message = e.target.value; renderEditor(); };
+          cardBody.appendChild(messageInput);
+          
+          const colorSelect = document.createElement("select");
+          colorSelect.className = "form-select form-select-sm mb-2";
+          const redOption = document.createElement("option");
+          redOption.value = "red";
+          redOption.innerText = "Red";
+          const orangeOption = document.createElement("option");
+          orangeOption.value = "orange";
+          orangeOption.innerText = "Orange";
+          const greenOption = document.createElement("option");
+          greenOption.value = "green";
+          greenOption.innerText = "Green";
+          colorSelect.appendChild(redOption);
+          colorSelect.appendChild(orangeOption);
+          colorSelect.appendChild(greenOption);
+          colorSelect.value = q.indicatorColor || "green";
+          colorSelect.onchange = (e) => { q.indicatorColor = e.target.value; renderEditor(); };
+          cardBody.appendChild(colorSelect);
+          
+          const note = document.createElement("p");
+          note.className = "text-muted";
+          note.innerText = "This success message will end the questionnaire.";
+          cardBody.appendChild(note);
+        }
+        
+        const deleteQuestionBtn = document.createElement("button");
+        deleteQuestionBtn.className = "btn btn-danger btn-sm mt-2";
+        deleteQuestionBtn.innerText = "Delete Question";
+        deleteQuestionBtn.onclick = (e) => {
+          delete questions[q.id];
+          reindexQuestions();
+          renderEditor();
+          renderCanvasConnections();
+          e.stopPropagation();
+        };
+        cardBody.appendChild(deleteQuestionBtn);
+        
+        card.appendChild(cardBody);
+        
+        cardHeader.onmousedown = (e) => {
+          const startX = e.clientX;
+          const startY = e.clientY;
+          const origX = q.x;
+          const origY = q.y;
+          function onMouseMove(e) {
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            q.x = origX + dx / zoomLevel;
+            q.y = origY + dy / zoomLevel;
+            card.style.left = q.x + "px";
+            card.style.top = q.y + "px";
+            renderCanvasConnections();
+          }
+          function onMouseUp() {
+            document.removeEventListener("mousemove", onMouseMove);
+            document.removeEventListener("mouseup", onMouseUp);
+          }
+          document.addEventListener("mousemove", onMouseMove);
+          document.addEventListener("mouseup", onMouseUp);
+        };
+        
+        card.onclick = (e) => {
+          if (currentConnecting) {
+            const targetId = q.id;
+            if (targetId === currentConnecting.sourceId) {
+              alert("Cannot connect a question to itself.");
+            } else {
+              const sourceQuestion = questions[currentConnecting.sourceId];
+              if (sourceQuestion) {
+                if(sourceQuestion.type === "options") {
+                  sourceQuestion.options[currentConnecting.optionIndex].next = targetId;
+                } else {
+                  sourceQuestion.next = targetId;
+                }
+                recordAnswer(currentPreviewQuestionId,
+                  (sourceQuestion.type === "options")
+                    ? sourceQuestion.options[currentConnecting.optionIndex].text
+                    : "Answered");
+              }
+            }
+            currentConnecting = null;
+            renderEditor();
+            renderCanvasConnections();
+            e.stopPropagation();
+          }
+        };
+        
+        editorContent.appendChild(card);
+      });
+      renderTimeline();
+    }
+    renderEditor();
+
+    // --- Draw Connectors ---
+    function renderCanvasConnections() {
+      const canvas = document.getElementById("connectionsCanvas");
+      canvas.width = 2000;
+      canvas.height = 2000;
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      Object.values(questions).forEach(q => {
+        if(q.type === "options") {
+          q.options.forEach((option, index) => {
+            if(option.next) {
+              const sourceCard = document.querySelector(`.question-card[data-id='${q.id}']`);
+              const targetCard = document.querySelector(`.question-card[data-id='${option.next}']`);
+              if (sourceCard && targetCard) {
+                const srcRect = getCardRect(sourceCard);
+                const tgtRect = getCardRect(targetCard);
+                const srcCenter = { x: srcRect.x + srcRect.width/2, y: srcRect.y + srcRect.height/2 };
+                const tgtCenter = { x: tgtRect.x + tgtRect.width/2, y: tgtRect.y + tgtRect.height/2 };
+                const srcEdge = getEdgeIntersection(srcRect, srcCenter, tgtCenter);
+                const tgtEdge = getEdgeIntersection(tgtRect, tgtCenter, srcCenter);
+                let midX = tgtEdge.x;
+                ctx.beginPath();
+                ctx.moveTo(srcEdge.x, srcEdge.y);
+                ctx.lineTo(midX, srcEdge.y);
+                ctx.lineTo(midX, tgtEdge.y);
+                ctx.lineTo(tgtEdge.x, tgtEdge.y);
+                ctx.strokeStyle = "black";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                drawArrowhead(ctx, midX, tgtEdge.y, tgtEdge.x, tgtEdge.y);
+              }
+            }
+          });
+        } else if((q.type === "input" || q.type === "datetime") && q.next) {
+          const sourceCard = document.querySelector(`.question-card[data-id='${q.id}']`);
+          const targetCard = document.querySelector(`.question-card[data-id='${q.next}']`);
+          if (sourceCard && targetCard) {
+            const srcRect = getCardRect(sourceCard);
+            const tgtRect = getCardRect(targetCard);
+            const srcCenter = { x: srcRect.x + srcRect.width/2, y: srcRect.y + srcRect.height/2 };
+            const tgtCenter = { x: tgtRect.x + tgtRect.width/2, y: tgtRect.y + tgtRect.height/2 };
+            const srcEdge = getEdgeIntersection(srcRect, srcCenter, tgtCenter);
+            const tgtEdge = getEdgeIntersection(tgtRect, tgtCenter, srcCenter);
+            let midX = tgtEdge.x;
+            ctx.beginPath();
+            ctx.moveTo(srcEdge.x, srcEdge.y);
+            ctx.lineTo(midX, srcEdge.y);
+            ctx.lineTo(midX, tgtEdge.y);
+            ctx.lineTo(tgtEdge.x, tgtEdge.y);
+            ctx.strokeStyle = "black";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            drawArrowhead(ctx, midX, tgtEdge.y, tgtEdge.x, tgtEdge.y);
+          }
+        } else if(q.type === "slider" && q.next) {
+          const sourceCard = document.querySelector(`.question-card[data-id='${q.id}']`);
+          if (sourceCard) {
+            const srcRect = getCardRect(sourceCard);
+            const srcCenter = { x: srcRect.x + srcRect.width/2, y: srcRect.y + srcRect.height/2 };
+            const targetCard = document.querySelector(`.question-card[data-id='${q.next}']`);
+            if (targetCard) {
+              const tgtRect = getCardRect(targetCard);
+              const tgtCenter = { x: tgtRect.x + tgtRect.width/2, y: tgtRect.y + tgtRect.height/2 };
+              const srcEdge = getEdgeIntersection(srcRect, srcCenter, tgtCenter);
+              const tgtEdge = getEdgeIntersection(tgtRect, tgtCenter, srcCenter);
+              let midX = tgtEdge.x;
+              ctx.beginPath();
+              ctx.moveTo(srcEdge.x, srcEdge.y);
+              ctx.lineTo(midX, srcEdge.y);
+              ctx.lineTo(midX, tgtEdge.y);
+              ctx.lineTo(tgtEdge.x, tgtEdge.y);
+              ctx.strokeStyle = "black";
+              ctx.lineWidth = 2;
+              ctx.stroke();
+              drawArrowhead(ctx, midX, tgtEdge.y, tgtEdge.x, tgtEdge.y);
+            }
+          }
+        }
+      });
+    }
+    renderCanvasConnections();
+
+    // --- Preview Rendering ---
+    function renderPreview() {
+      const previewContainer = document.getElementById("previewContainer");
+      previewContainer.innerHTML = "";
+      if (!currentPreviewQuestionId || !questions[currentPreviewQuestionId]) {
+        previewContainer.innerHTML = `<div class="card-body"><h5>Thank you for participating!</h5></div>`;
+        return;
+      }
+      const q = questions[currentPreviewQuestionId];
+      const cardBody = document.createElement("div");
+      cardBody.className = "card-body";
+      
+      if(q.type === "success") {
+        if (!progress[q.id]) {
+          recordAnswer(q.id, "Success");
+        }
+        const heading = document.createElement("h3");
+        heading.innerText = q.heading || "Success!";
+        heading.style.color = q.indicatorColor || "green";
+        cardBody.appendChild(heading);
+        
+        const messagePara = document.createElement("p");
+        messagePara.innerText = q.message || "Your questionnaire has been successfully completed.";
+        cardBody.appendChild(messagePara);
+      } else {
+        const questionTitle = document.createElement("h5");
+        questionTitle.className = "card-title";
+        questionTitle.innerText = q.question;
+        cardBody.appendChild(questionTitle);
+        
+        if(q.type === "options") {
+          q.options.forEach(option => {
+            const btn = document.createElement("button");
+            btn.className = "btn btn-primary mt-2 d-block";
+            btn.innerText = option.text;
+            btn.onclick = () => {
+              recordAnswer(currentPreviewQuestionId, option.text);
+              currentPreviewQuestionId = option.next;
+              renderPreview();
+            };
+            cardBody.appendChild(btn);
+          });
+        } else if(q.type === "input") {
+          const inputField = document.createElement("input");
+          inputField.type = "text";
+          inputField.className = "form-control mb-2";
+          inputField.placeholder = q.placeholder || "Type your answer...";
+          cardBody.appendChild(inputField);
+          const submitBtn = document.createElement("button");
+          submitBtn.className = "btn btn-primary";
+          submitBtn.innerText = "Submit";
+          submitBtn.onclick = () => {
+            recordAnswer(currentPreviewQuestionId, inputField.value);
+            currentPreviewQuestionId = q.next;
+            renderPreview();
+          };
+          cardBody.appendChild(submitBtn);
+        } else if(q.type === "datetime") {
+          const dateTimeInput = document.createElement("input");
+          dateTimeInput.type = "datetime-local";
+          dateTimeInput.className = "form-control mb-2";
+          if(q.placeholder) dateTimeInput.placeholder = q.placeholder;
+          cardBody.appendChild(dateTimeInput);
+          const submitBtn = document.createElement("button");
+          submitBtn.className = "btn btn-primary";
+          submitBtn.innerText = "Submit";
+          submitBtn.onclick = () => {
+            recordAnswer(currentPreviewQuestionId, dateTimeInput.value);
+            currentPreviewQuestionId = q.next;
+            renderPreview();
+          };
+          cardBody.appendChild(submitBtn);
+        } else if(q.type === "slider") {
+          const sliderLabel = document.createElement("label");
+          sliderLabel.innerText = "Select a number:";
+          cardBody.appendChild(sliderLabel);
+          const sliderInput = document.createElement("input");
+          sliderInput.type = "range";
+          sliderInput.className = "form-range mb-2";
+          sliderInput.min = q.min;
+          sliderInput.max = q.max;
+          sliderInput.step = q.step;
+          sliderInput.value = q.default;
+          cardBody.appendChild(sliderInput);
+          const sliderValueSpan = document.createElement("span");
+          sliderValueSpan.innerText = sliderInput.value;
+          cardBody.appendChild(sliderValueSpan);
+          sliderInput.oninput = () => { sliderValueSpan.innerText = sliderInput.value; };
+          const submitBtn = document.createElement("button");
+          submitBtn.className = "btn btn-primary mt-2";
+          submitBtn.innerText = "Submit";
+          submitBtn.onclick = () => {
+            recordAnswer(currentPreviewQuestionId, sliderInput.value);
+            currentPreviewQuestionId = q.next;
+            renderPreview();
+          };
+          cardBody.appendChild(submitBtn);
+        }
+      }
+      
+      previewContainer.appendChild(cardBody);
+      
+      let prevId = null;
+      Object.values(questions).forEach(other => {
+        if(other.type === "options") {
+          other.options.forEach(opt => {
+            if(opt.next === currentPreviewQuestionId && !prevId) prevId = other.id;
+          });
+        } else {
+          if(other.next === currentPreviewQuestionId && !prevId) prevId = other.id;
+        }
+      });
+      const backBtn = document.createElement("button");
+      backBtn.className = "btn btn-secondary mt-3";
+      backBtn.innerText = "Back";
+      if(prevId) {
+        backBtn.onclick = () => {
+          currentPreviewQuestionId = prevId;
+          renderPreview();
+        };
+      } else {
+        backBtn.disabled = true;
+      }
+      previewContainer.appendChild(backBtn);
+      
+      renderTimeline();
+    }
+    renderPreview();
+
+    function restartPreview() {
+      currentPreviewQuestionId = "q1";
+      resetProgress();
+      renderPreview();
+    }
+
+    // --- Event Listeners ---
+    document.getElementById("addQuestionBtn").addEventListener("click", () => {
+      const newId = "q" + questionCounter;
+      questions[newId] = {
+        id: newId,
+        type: "options",
+        question: "New Options Question",
+        options: [{ text: "Option 1", next: null }],
+        x: 100,
+        y: 100
+      };
+      questionCounter++;
+      renderEditor();
+      renderCanvasConnections();
+    });
+    document.getElementById("addInputQuestionBtn").addEventListener("click", () => {
+      const newId = "q" + questionCounter;
+      questions[newId] = {
+        id: newId,
+        type: "input",
+        question: "New Text Input Question",
+        placeholder: "Enter your answer...",
+        next: null,
+        x: 150,
+        y: 150
+      };
+      questionCounter++;
+      renderEditor();
+      renderCanvasConnections();
+    });
+    document.getElementById("addDateTimeQuestionBtn").addEventListener("click", () => {
+      const newId = "q" + questionCounter;
+      questions[newId] = {
+        id: newId,
+        type: "datetime",
+        question: "New Date & Time Question",
+        placeholder: "Select date and time",
+        next: null,
+        x: 200,
+        y: 200
+      };
+      questionCounter++;
+      renderEditor();
+      renderCanvasConnections();
+    });
+    document.getElementById("addSliderQuestionBtn").addEventListener("click", () => {
+      const newId = "q" + questionCounter;
+      questions[newId] = {
+        id: newId,
+        type: "slider",
+        question: "New Number Slider Question",
+        min: 0,
+        max: 100,
+        step: 1,
+        default: 50,
+        next: null,
+        x: 250,
+        y: 250
+      };
+      questionCounter++;
+      renderEditor();
+      renderCanvasConnections();
+    });
+    document.getElementById("addSuccessQuestionBtn").addEventListener("click", () => {
+      const newId = "q" + questionCounter;
+      questions[newId] = {
+        id: newId,
+        type: "success",
+        heading: "Congratulations!",
+        message: "Your questionnaire has been successfully completed.",
+        indicatorColor: "green",
+        x: 300,
+        y: 300
+      };
+      questionCounter++;
+      renderEditor();
+      renderCanvasConnections();
+    });
+    document.getElementById("refreshPreviewBtn").addEventListener("click", restartPreview);
+    document.getElementById("restartPreviewBtn").addEventListener("click", restartPreview);
+    document.getElementById("zoomInBtn").addEventListener("click", () => {
+      zoomLevel += 0.1;
+      renderEditor();
+      renderCanvasConnections();
+    });
+    document.getElementById("zoomOutBtn").addEventListener("click", () => {
+      zoomLevel = Math.max(0.1, zoomLevel - 0.1);
+      renderEditor();
+      renderCanvasConnections();
+    });
+    
+    // --- Export JSON ---
+    document.getElementById("exportJsonBtn").addEventListener("click", () => {
+      let jsonData = JSON.stringify(questions, null, 2);
+      document.getElementById("exportJsonText").value = jsonData;
+      let exportModal = new bootstrap.Modal(document.getElementById("exportModal"));
+      exportModal.show();
+    });
+    document.getElementById("copyJsonBtn").addEventListener("click", () => {
+      let textArea = document.getElementById("exportJsonText");
+      textArea.select();
+      document.execCommand("copy");
+      alert("JSON copied to clipboard!");
+    });
+    document.getElementById("downloadJsonBtn").addEventListener("click", () => {
+      let jsonData = JSON.stringify(questions, null, 2);
+      let blob = new Blob([jsonData], { type: "application/json" });
+      let url = URL.createObjectURL(blob);
+      let a = document.createElement("a");
+      a.href = url;
+      a.download = "questionnaire.json";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+    
+    // --- Import JSON via Textarea or File ---
+    document.getElementById("importJsonBtn").addEventListener("click", () => {
+      let importModal = new bootstrap.Modal(document.getElementById("importModal"));
+      importModal.show();
+    });
+    // Read file and populate textarea.
+    document.getElementById("importJsonFile").addEventListener("change", function(e) {
+      const file = e.target.files[0];
+      if(file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          document.getElementById("importJsonText").value = e.target.result;
+        };
+        reader.readAsText(file);
+      }
+    });
+    document.getElementById("loadJsonBtn").addEventListener("click", () => {
+      let importText = document.getElementById("importJsonText").value;
+      try {
+        let imported = JSON.parse(importText);
+        questions = imported;
+        resetProgress();
+        currentPreviewQuestionId = "q1";
+        questionCounter = Object.keys(questions).length + 1;
+        renderEditor();
+        renderCanvasConnections();
+        renderPreview();
+        renderTimeline();
+        alert("Questionnaire imported successfully.");
+        let importModal = bootstrap.Modal.getInstance(document.getElementById("importModal"));
+        importModal.hide();
+      } catch (e) {
+        alert("Invalid JSON. Please check your input.");
+      }
+    });
+    
+    // --- Compare JSON ---
+    document.getElementById("compareJsonBtn").addEventListener("click", () => {
+      let compareModal = new bootstrap.Modal(document.getElementById("compareModal"));
+      compareModal.show();
+    });
+    document.getElementById("compareBtn").addEventListener("click", () => {
+      let jsonText1 = document.getElementById("compareJsonText1").value;
+      let jsonText2 = document.getElementById("compareJsonText2").value;
+      try {
+        let data1 = JSON.parse(jsonText1);
+        let data2 = JSON.parse(jsonText2);
+        let questions1 = Object.values(data1);
+        let questions2 = Object.values(data2);
+        function groupByType(arr) {
+          return arr.reduce((acc, q) => {
+            let key = q.type;
+            if (!acc[key]) acc[key] = [];
+            acc[key].push(q);
+            return acc;
+          }, {});
+        }
+        let group1 = groupByType(questions1);
+        let group2 = groupByType(questions2);
+        let resultHTML = "";
+        for (let type in group1) {
+          if (group2[type]) {
+            let overlaps = [];
+            group1[type].forEach(q1 => {
+              group2[type].forEach(q2 => {
+                let prompt1 = (type === "success") ? q1.heading : q1.question;
+                let prompt2 = (type === "success") ? q2.heading : q2.question;
+                if (prompt1 && prompt2 && prompt1.trim() === prompt2.trim()) {
+                  overlaps.push(prompt1.trim());
+                }
+              });
+            });
+            if (overlaps.length > 0) {
+              resultHTML += `<h5>Type: ${type}</h5><ul>`;
+              overlaps.forEach(p => {
+                resultHTML += `<li>${p}</li>`;
+              });
+              resultHTML += `</ul>`;
+            }
+          }
+        }
+        if(resultHTML === "") {
+          resultHTML = "<p>No overlapping questions found.</p>";
+        }
+        document.getElementById("compareResult").innerHTML = resultHTML;
+      } catch(e) {
+        alert("Invalid JSON input in one or both textareas.");
+      }
+    });
+    
+    // --- Export State ---
+    document.getElementById("exportStateBtn").addEventListener("click", () => {
+      let stateData = exportState();
+      document.getElementById("exportStateText").value = stateData;
+      let exportStateModal = new bootstrap.Modal(document.getElementById("exportStateModal"));
+      exportStateModal.show();
+    });
+    document.getElementById("copyStateBtn").addEventListener("click", () => {
+      let textArea = document.getElementById("exportStateText");
+      textArea.select();
+      document.execCommand("copy");
+      alert("State JSON copied to clipboard!");
+    });
+    document.getElementById("downloadStateBtn").addEventListener("click", () => {
+      let stateData = exportState();
+      let blob = new Blob([stateData], { type: "application/json" });
+      let url = URL.createObjectURL(blob);
+      let a = document.createElement("a");
+      a.href = url;
+      a.download = "questionnaire_state.json";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+    
+    // --- Import State via Textarea or File ---
+    document.getElementById("importStateBtn").addEventListener("click", () => {
+      let importStateModal = new bootstrap.Modal(document.getElementById("importStateModal"));
+      importStateModal.show();
+    });
+    document.getElementById("importStateFile").addEventListener("change", function(e) {
+      const file = e.target.files[0];
+      if(file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          document.getElementById("importStateText").value = e.target.result;
+        };
+        reader.readAsText(file);
+      }
+    });
+    document.getElementById("loadStateBtn").addEventListener("click", () => {
+      let stateText = document.getElementById("importStateText").value;
+      try {
+        let stateObj = JSON.parse(stateText);
+        importState(stateObj);
+        renderEditor();
+        renderCanvasConnections();
+        renderPreview();
+        renderTimeline();
+        alert("State imported successfully.");
+        let importStateModal = bootstrap.Modal.getInstance(document.getElementById("importStateModal"));
+        importStateModal.hide();
+      } catch(e) {
+        alert("Invalid State JSON. Please check your input.");
+      }
+    });
+  </script>
+  
+  <!-- Export JSON Modal (Duplicate for file upload integration) -->
+  <div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="exportModalLabel">Export Questionnaire JSON</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <textarea id="exportJsonText" class="form-control" rows="15"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary" id="copyJsonBtn">Copy to Clipboard</button>
+          <button type="button" class="btn btn-success" id="downloadJsonBtn">Download JSON</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Import JSON Modal (Duplicate for file upload integration) -->
+  <div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="importModalLabel">Import Questionnaire JSON</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <input type="file" id="importJsonFile" class="form-control mb-2" accept=".json" />
+          <textarea id="importJsonText" class="form-control" rows="10" placeholder="Or paste your JSON here..."></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="loadJsonBtn">Load JSON</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Compare JSON Modal (as before) -->
+  <div class="modal fade" id="compareModal" tabindex="-1" aria-labelledby="compareModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="compareModalLabel">Compare Two Questionnaires</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="compareJsonText1" class="form-label">Questionnaire JSON 1</label>
+            <textarea id="compareJsonText1" class="form-control" rows="8" placeholder="Paste first JSON here..."></textarea>
+          </div>
+          <div class="mb-3">
+            <label for="compareJsonText2" class="form-label">Questionnaire JSON 2</label>
+            <textarea id="compareJsonText2" class="form-control" rows="8" placeholder="Paste second JSON here..."></textarea>
+          </div>
+          <div id="compareResult" class="mt-3"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary" id="compareBtn">Compare</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Export State Modal -->
+  <div class="modal fade" id="exportStateModal" tabindex="-1" aria-labelledby="exportStateModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="exportStateModalLabel">Export Questionnaire State</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <textarea id="exportStateText" class="form-control" rows="10"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary" id="copyStateBtn">Copy to Clipboard</button>
+          <button type="button" class="btn btn-success" id="downloadStateBtn">Download State</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Import State Modal -->
+  <div class="modal fade" id="importStateModal" tabindex="-1" aria-labelledby="importStateModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="importStateModalLabel">Import Questionnaire State</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <input type="file" id="importStateFile" class="form-control mb-2" accept=".json" />
+          <textarea id="importStateText" class="form-control" rows="10" placeholder="Or paste state JSON here..."></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="loadStateBtn">Load State</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+</body>
+</html>
